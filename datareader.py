@@ -121,27 +121,16 @@ class YcbineoatReader:
 
   def get_depth(self,i):
     depth = cv2.imread(self.color_files[i].replace('rgb','depth'),-1)/1e3
+    depth[np.isnan(depth)] = 0
+    depth[np.isinf(depth)] = 0
+    in_mm = depth.max() > 100
+    if in_mm:
+        print(f"Converting depth from mm to m since max = {depth.max()}")
+        depth = depth / 1000
+    else:
+        print(f"Depth is in meters since max = {depth.max()}")
     depth = cv2.resize(depth, (self.W,self.H), interpolation=cv2.INTER_NEAREST)
     depth[(depth<0.1) | (depth>=self.zfar)] = 0
-
-    # TO DO: Ensure depth in meters
-    # Turn nan values into 0
-    # depth[np.isnan(depth)] = 0
-    # depth[np.isinf(depth)] = 0
-
-    # # depth is either in meters or millimeters
-    # # Need to convert to meters
-    # # If the max value is greater than 100, then it's likely in mm
-    # in_mm = depth.max() > 100
-    # if in_mm:
-    #     rospy.loginfo(f"Converting depth from mm to m since max = {depth.max()}")
-    #     depth = depth / 1000
-    # else:
-    #     rospy.loginfo(f"Depth is in meters since max = {depth.max()}")
-
-    # # Clamp
-    # depth[depth < 0.1] = 0
-    # depth[depth > 4] = 0
     return depth
 
 
