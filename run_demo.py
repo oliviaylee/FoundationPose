@@ -9,14 +9,16 @@
 
 from estimater import *
 from datareader import *
+from Utils import *
+from evaluator import render_depth_and_mask_cache, compare_masks
 import argparse
 
 
 if __name__=='__main__':
   parser = argparse.ArgumentParser()
   code_dir = os.path.dirname(os.path.realpath(__file__))
-  parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj')
-  parser.add_argument('--test_scene_dir', type=str, default=f'{code_dir}/demo_data/mustard0')
+  # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/kiri_meshes/pitcher/3DModel_new.obj') # demo_data/snackbox_horizontal/mesh/textured.obj
+  parser.add_argument('--test_scene_dir', type=str, default=f'{code_dir}/demo_data/zed_raw/snackbox/0')
   parser.add_argument('--est_refine_iter', type=int, default=5)
   parser.add_argument('--track_refine_iter', type=int, default=2)
   parser.add_argument('--debug', type=int, default=1)
@@ -26,7 +28,15 @@ if __name__=='__main__':
   set_logging_format()
   set_seed(0)
 
-  mesh = trimesh.load(args.mesh_file)
+  mesh_file = None
+  if "snackbox" in args.test_scene_dir:
+    mesh_file = "/juno/u/oliviayl/repos/cross_embodiment/FoundationPose/kiri_meshes/snackbox/3DModel_centered.obj"
+  elif "plate" in args.test_scene_dir:
+    mesh_file = "/juno/u/oliviayl/repos/cross_embodiment/FoundationPose/kiri_meshes/plate_hamburger/3DModel_new.obj"
+  elif "pitcher" in args.test_scene_dir or "wateringcan" in args.test_scene_dir:
+    mesh_file = "/juno/u/oliviayl/repos/cross_embodiment/FoundationPose/ikea_meshes/watering_can/watering_can.obj"
+
+  mesh = trimesh.load(mesh_file)
 
   debug = args.debug
   debug_dir = args.debug_dir
@@ -47,8 +57,8 @@ if __name__=='__main__':
     logging.info(f'i:{i}')
     color = reader.get_color(i)
     depth = reader.get_depth(i)
+    mask = reader.get_mask(i).astype(bool)
     if i==0:
-      mask = reader.get_mask(0).astype(bool)
       pose = est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=args.est_refine_iter)
 
       if debug>=3:
@@ -61,6 +71,18 @@ if __name__=='__main__':
         o3d.io.write_point_cloud(f'{debug_dir}/scene_complete.ply', pcd)
     else:
       pose = est.track_one(rgb=color, depth=depth, K=reader.K, iteration=args.track_refine_iter)
+      predicted_depth, predicted_mask = render_depth_and_mask_cache(
+                trimesh_obj=mesh,
+                T_C_O=pose,
+                K=reader.K,
+                image_width=color.shape[1],
+                image_height=color.shape[0],
+            )
+      iou, is_match = compare_masks(mask, predicted_mask, threshold=0.1)
+      if not is_match:
+        logging.info(f'mismatch! iou:{iou}')
+        mask = reader.get_mask(i).astype(bool)
+        pose = est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=args.est_refine_iter)
 
     os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
     np.savetxt(f'{debug_dir}/ob_in_cam/{reader.id_strs[i]}.txt', pose.reshape(4,4))
